@@ -10,7 +10,9 @@ import { authRoutes } from "./routes/auth";
 import { taskRoutes } from "./routes/tasks";
 import { occurrenceRoutes, quickRoutes } from "./routes/occurrences";
 import { viewRoutes } from "./routes/views";
-import { runMaintenance } from "./services/rules";
+import { runMaintenance, sendDailySummary } from "./services/rules";
+import { vapidFrom } from "./services/push";
+import { notificationRoutes } from "./routes/notifications";
 import { swapRoutes } from "./routes/swaps";
 import { awayRoutes } from "./routes/away";
 
@@ -39,11 +41,17 @@ app.onError((err, c) => {
 app.get("/health", (c) => c.json({ ok: true }));
 app.route("/", authRoutes);
 
+// Dev/test only: run the hourly cron job at the simulated time.
+app.post("/dev/cron", async (c) => {
+  if (c.env.TEST_CLOCK !== "1") return c.json({ error: "Not found" }, 404);
+  return c.json(await runCron(c.env, c.var.now));
+});
+
 // Everything below needs a signed-in member. GETs also bring the schedule up to date (horizon, missed, penalties).
 const authed = new Hono<AppEnv>();
 authed.use(requireMember);
 authed.use(async (c, next) => {
-  if (c.req.method === "GET") await runMaintenance(c.var.db, c.var.today, c.var.now, c.env.APP_TIMEZONE);
+  if (c.req.method === "GET") await runMaintenance(c.var.db, c.var.today, c.var.now, c.env.APP_TIMEZONE, vapidFrom(c.env));
   await next();
 });
 authed.route("/tasks", taskRoutes);
@@ -51,15 +59,23 @@ authed.route("/occurrences", occurrenceRoutes);
 authed.route("/quick", quickRoutes);
 authed.route("/swaps", swapRoutes);
 authed.route("/away", awayRoutes);
+authed.route("/", notificationRoutes);
 authed.route("/", viewRoutes);
 app.route("/", authed);
 
+/** Hourly: keep the schedule up to date (horizon, missed, penalties) and send the 09:00 daily summary. */
+async function runCron(env: Env, now: Date) {
+  const db = drizzle(env.DB, { schema });
+  const today = dateInTz(now, env.APP_TIMEZONE);
+  const vapid = vapidFrom(env);
+  const ctx = await runMaintenance(db, today, now, env.APP_TIMEZONE, vapid);
+  const summarySent = await sendDailySummary(db, today, now, env.APP_TIMEZONE, ctx, vapid);
+  return { today, summarySent };
+}
+
 export default {
   fetch: app.fetch,
-  async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
-    const now = clock(env);
-    const db = drizzle(env.DB, { schema });
-    await runMaintenance(db, dateInTz(now, env.APP_TIMEZONE), now, env.APP_TIMEZONE);
-    // The 09:00 daily summary arrives in phase 4.
+  async scheduled(_controller: ScheduledController, env: Env, ctx: ExecutionContext) {
+    ctx.waitUntil(runCron(env, clock(env)));
   },
 } satisfies ExportedHandler<Env>;

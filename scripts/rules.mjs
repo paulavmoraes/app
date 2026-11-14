@@ -129,4 +129,33 @@ await ok(A("POST", `/occurrences/${n1.id}/complete`, {}));
 const home = await ok(A("GET", "/home"));
 assert.equal(home.groups.flatMap((g) => g.items).find((o) => o.taskId === nes).date, "2026-12-27");
 
+step("Inbox: everyone got the right notifications; reading clears the unread count");
+const types = async (cl) => (await ok(cl("GET", "/notifications"))).items.map((i) => i.type);
+const [ta, tb, tc] = [await types(A), await types(B), await types(C)];
+for (const want of ["missed", "penalty", "swap_declined"]) assert.ok(ta.includes(want), `Ana should have ${want}: ${ta}`);
+for (const want of ["penalty_freed", "swap_proposed", "missed", "penalty"]) assert.ok(tb.includes(want), `Ben should have ${want}: ${tb}`);
+for (const want of ["swap_accepted", "swap_proposed"]) assert.ok(tc.includes(want), `Cat should have ${want}: ${tc}`);
+assert.ok((await ok(A("GET", "/notifications"))).unread > 0);
+await ok(A("POST", "/notifications/read"));
+assert.equal((await ok(A("GET", "/notifications"))).unread, 0);
+
+step("Daily summary: not before 9:00 London, once at 9:00, never twice, nothing for someone away");
+await ok(C("POST", "/away", { startDate: "2026-12-21", endDate: "2026-12-30" }));
+const summaries = async (cl) => (await ok(cl("GET", "/notifications"))).items.filter((i) => i.type === "daily_summary");
+clock = "2026-12-21T08:30:00Z";
+assert.equal((await ok(A("POST", "/dev/cron"))).summarySent, false);
+clock = "2026-12-21T09:02:00Z";
+assert.equal((await ok(A("POST", "/dev/cron"))).summarySent, true);
+assert.equal((await ok(A("POST", "/dev/cron"))).summarySent, false);
+const all = [...(await summaries(A)), ...(await summaries(B))];
+assert.ok(all.length >= 1, "someone at home has chores to be reminded of");
+assert.ok(all.some((n) => /Overdue: .*Dusting \(overdue by \d+ days?\)/.test(n.body)), JSON.stringify(all));
+assert.equal((await summaries(C)).length, 0);
+
+step("Summer time: 9:00 London is 08:00 UTC");
+clock = "2027-06-01T07:30:00Z";
+assert.equal((await ok(A("POST", "/dev/cron"))).summarySent, false);
+clock = "2027-06-01T08:01:00Z";
+assert.equal((await ok(A("POST", "/dev/cron"))).summarySent, true);
+
 console.log("RULES OK");

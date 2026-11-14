@@ -1,7 +1,11 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router";
-import { useSession } from "./hooks";
+import { useEffect } from "react";
+import { useInbox, useSession } from "./hooks";
+import { resyncPush } from "./push";
+import { NotificationsScreen } from "./screens/Notifications";
 import { Avatar } from "./components/ui";
+import type { Member } from "../shared/types";
 import { HomeScreen } from "./screens/Home";
 import { CalendarScreen } from "./screens/Calendar";
 import { SetupScreen } from "./screens/Setup";
@@ -34,6 +38,7 @@ export function App() {
             <Route path="tasks/new" element={<TaskFormScreen />} />
             <Route path="tasks/:id/edit" element={<TaskFormScreen />} />
             <Route path="history" element={<HistoryScreen />} />
+            <Route path="notifications" element={<NotificationsScreen />} />
             <Route path="settings" element={<SettingsScreen />} />
           </Route>
           <Route path="*" element={<Navigate to="/" replace />} />
@@ -49,6 +54,7 @@ const tabs = [
   { to: "/calendar", label: "Calendar", icon: "📅" },
   { to: "/tasks", label: "Tasks", icon: "📋" },
   { to: "/history", label: "History", icon: "🕘" },
+  { to: "/notifications", label: "Inbox", icon: "🔔" },
 ];
 
 function SignedInShell() {
@@ -57,10 +63,19 @@ function SignedInShell() {
   if (error) return <div className="p-6 text-red-700">Can't reach the server. Check your connection.</div>;
   if (data?.setupNeeded) return <Navigate to="/setup" replace />;
   if (!data?.me) return <SignedOutScreen />;
+  return <Shell me={data.me} />;
+}
+
+function Shell({ me }: { me: Member }) {
+  const inbox = useInbox();
+  const unread = inbox.data?.unread ?? 0;
+  useEffect(() => {
+    void resyncPush();
+  }, [me.id]);
   return (
     <div className="relative mx-auto min-h-dvh max-w-md pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
       <Link to="/settings" className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] right-4 z-20" aria-label="Settings">
-        <Avatar member={data.me} size={36} />
+        <Avatar member={me} size={36} />
       </Link>
       <main className="px-4 pt-[calc(1rem+env(safe-area-inset-top))]">
         <Outlet />
@@ -74,10 +89,14 @@ function SignedInShell() {
                 end={t.to === "/"}
                 className={({ isActive }) => `flex flex-col items-center py-2 text-xs ${isActive ? "font-semibold text-teal-700" : "text-slate-500"}`}
               >
-                <span className="text-xl" aria-hidden>
+                <span className="relative text-xl" aria-hidden>
                   {t.icon}
+                  {t.to === "/notifications" && unread > 0 && (
+                    <span className="absolute -top-1 -right-2.5 min-w-4 rounded-full bg-red-600 px-1 text-center text-[10px] leading-4 font-bold text-white">{unread > 9 ? "9+" : unread}</span>
+                  )}
                 </span>
                 {t.label}
+                {t.to === "/notifications" && unread > 0 && <span className="sr-only">{unread} unread</span>}
               </NavLink>
             </li>
           ))}

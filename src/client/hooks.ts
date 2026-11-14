@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
-import type { AwayDTO, Member, SessionInfo, SwapDTO } from "../shared/types";
+import type { AwayDTO, InboxDTO, Member, SessionInfo, SwapDTO } from "../shared/types";
 
 export const useSession = () => useQuery({ queryKey: ["session"], queryFn: () => api.get<SessionInfo>("/session") });
 
@@ -22,3 +22,6 @@ export const useSwaps = () => useQuery({ queryKey: ["swaps"], queryFn: () => api
 
 /** Current and upcoming away periods of everyone. */
 export const useAway = () => useQuery({ queryKey: ["away"], queryFn: () => api.get<AwayDTO[]>("/away") });
+
+/** The notifications inbox; refreshed every minute for the tab badge. */
+export const useInbox = () => useQuery({ queryKey: ["inbox"], queryFn: () => api.get<InboxDTO>("/notifications"), refetchInterval: 60_000 });

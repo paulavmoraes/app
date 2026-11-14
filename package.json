@@ -13,9 +13,12 @@
     "db:migrate:remote": "wrangler d1 migrations apply chores --remote",
     "deploy": "npm run build && wrangler d1 migrations apply chores --remote && wrangler deploy",
     "smoke": "node scripts/smoke.mjs",
-    "test:rules": "node scripts/rules.mjs"
+    "test:rules": "node scripts/rules.mjs",
+    "vapid": "node scripts/vapid.mjs",
+    "icons": "node scripts/icons.mjs"
   },
   "dependencies": {
+    "@block65/webcrypto-web-push": "^2.0.0",
     "@tanstack/react-query": "^5.107.1",
     "drizzle-orm": "^0.45.4",
     "hono": "^4.13.18",
@@ -35,7 +38,6 @@
     "tailwindcss": "^4.3.5",
     "typescript": "^7.0.2",
     "vite": "^8.3.8",
-    "vite-plugin-pwa": "^2.0.0",
     "vitest": "^5.1.0",
     "wrangler": "^4.162.0"
   }

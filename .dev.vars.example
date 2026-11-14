@@ -1,3 +1,7 @@
 SETUP_TOKEN=dev-setup
-# Dev/test only: lets requests set the time with an x-test-now header (needed by npm run test:rules)
+# Dev/test only: lets requests set the time with an x-test-now header (needed by npm run test:rules). Never set in production.
 TEST_CLOCK=1
+# Web push: generate a pair with `npm run vapid` and paste both lines here
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=
+VAPID_SUBJECT=https://chores.example

@@ -157,6 +157,28 @@ try {
   await a.getByRole("heading", { name: "Home" }).waitFor();
   await a.getByText(/Away until/).waitFor({ state: "detached" });
 
+  // ---- Phase 4: inbox and PWA basics (real push delivery needs a deployed app and a real phone)
+  step("Inbox: Ben sees 'Swap accepted', the badge clears after opening");
+  await b.goto(BASE);
+  await b.getByText("1 unread").waitFor({ state: "attached" });
+  await b.getByRole("link", { name: /Inbox/ }).click();
+  await b.getByText("Swap accepted").waitFor();
+  await b.getByText(/Ana will do Wash the sink/).waitFor();
+  await b.getByText("1 unread").waitFor({ state: "detached" });
+  await shot(b, "inbox");
+
+  step("PWA: manifest, icons and service worker are served and registered");
+  const manifest = await (await b.request.get(`${BASE}/manifest.webmanifest`)).json();
+  if (manifest.display !== "standalone" || manifest.icons.length < 3) throw new Error("bad manifest");
+  for (const icon of [...manifest.icons.map((i) => i.src), "/icons/apple-touch-icon.png"]) {
+    const res = await b.request.get(BASE + icon);
+    if (!res.ok() || res.headers()["content-type"] !== "image/png") throw new Error(`icon ${icon} not served`);
+  }
+  const swScope = await b.evaluate(async () => (await navigator.serviceWorker.ready).scope);
+  if (!swScope.endsWith("/")) throw new Error("service worker not registered");
+  const key = await (await b.request.get(`${BASE}/api/push/key`)).json();
+  if (!key.publicKey) throw new Error("VAPID public key missing");
+
   console.log("SMOKE OK");
 } catch (e) {
   console.error("SMOKE FAILED:", e.message);

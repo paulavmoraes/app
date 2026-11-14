@@ -11,6 +11,11 @@ export type Env = {
   FAKE_NOW?: string;
   /** Dev/test only: "1" lets a request set the time with an `x-test-now` header. Never set in production. */
   TEST_CLOCK?: string;
+  /** Web push (VAPID). Generate with `npm run vapid`. Without them the inbox still works, push is skipped. */
+  VAPID_PUBLIC_KEY?: string;
+  VAPID_PRIVATE_KEY?: string;
+  /** Contact for push services: an https URL (the app's address) or a mailto: address. */
+  VAPID_SUBJECT?: string;
 };
 
 export type Db = DrizzleD1Database<typeof schema>;

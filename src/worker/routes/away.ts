@@ -1,7 +1,8 @@
 import { Hono } from "hono";
 import { z } from "zod";
 import { and, asc, eq, gte, isNull } from "drizzle-orm";
-import type { AppEnv, Db } from "../env";
+import type { AppEnv, Db, Env } from "../env";
+import { vapidFrom } from "../services/push";
 import { awayPeriods, taskVersions, tasks } from "../db/schema";
 import { diffDays, isISODate, type ISODate } from "../../domain/dates";
 import type { AwayDTO } from "../../shared/types";
@@ -11,14 +12,15 @@ import { regenerateFuture } from "../services/regenerate";
 import { runMaintenance } from "../services/rules";
 
 /** Away periods changed: re-plan every task from today, then re-apply any penalty shifts that were released. */
-async function replanAll(db: Db, today: ISODate, now: Date, tz: string) {
+async function replanAll(db: Db, today: ISODate, now: Date, env: Env) {
+  const tz = env.APP_TIMEZONE;
   const active = await db
     .select({ version: taskVersions })
     .from(tasks)
     .innerJoin(taskVersions, and(eq(taskVersions.taskId, tasks.id), isNull(taskVersions.effectiveTo)))
     .where(and(eq(tasks.kind, "recurring"), isNull(tasks.archivedAt)));
   for (const { version } of active) await regenerateFuture(db, version.taskId, version, today, now, tz);
-  await runMaintenance(db, today, now, tz);
+  await runMaintenance(db, today, now, tz, vapidFrom(env));
 }
 
 export const awayRoutes = new Hono<AppEnv>()
@@ -39,7 +41,7 @@ export const awayRoutes = new Hono<AppEnv>()
     if (mine.some((p) => p.startDate <= body.endDate && body.startDate <= p.endDate)) throw conflict("This overlaps another away period of yours");
     const id = newId();
     await db.insert(awayPeriods).values({ id, memberId: me.id, ...body, createdAt: now.toISOString() });
-    await replanAll(db, today, now, c.env.APP_TIMEZONE);
+    await replanAll(db, today, now, c.env);
     return c.json({ id }, 201);
   })
 
@@ -48,6 +50,6 @@ export const awayRoutes = new Hono<AppEnv>()
     const [p] = await db.select().from(awayPeriods).where(and(eq(awayPeriods.id, c.req.param("id")), eq(awayPeriods.memberId, me.id)));
     if (!p) throw notFound();
     await db.delete(awayPeriods).where(eq(awayPeriods.id, p.id));
-    await replanAll(db, today, now, c.env.APP_TIMEZONE);
+    await replanAll(db, today, now, c.env);
     return c.json({ ok: true });
   });

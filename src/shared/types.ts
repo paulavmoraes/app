@@ -63,3 +63,6 @@ export type HistoryItem =
   | { kind: "swap"; at: string; swapId: string; taskName: string; date: string; fromMemberId: string; toMemberId: string };
 
 export type HistoryDTO = { items: HistoryItem[]; nextCursor: string | null };
+
+export type NotificationDTO = { id: string; type: string; title: string; body: string; createdAt: string; readAt: string | null };
+export type InboxDTO = { unread: number; items: NotificationDTO[] };

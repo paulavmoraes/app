@@ -4,12 +4,13 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 
 ## Commands
 - `npm run dev`: Vite + Worker (`@cloudflare/vite-plugin`) with a local D1 at http://localhost:5173
-- `npm test`: Vitest (domain unit tests in `src/domain/*.test.ts`)
+- `npm test`: Vitest (domain unit tests in `src/domain/*.test.ts`, plus a push encryption test in `src/worker/services/push.test.ts`)
 - `npm run typecheck`: `tsc -b` (app + worker projects)
 - `npm run build`: production build into `dist/`
 - `npm run db:generate`: generate a migration from `src/worker/db/schema.ts`
 - `npm run db:migrate:local` / `db:migrate:remote`: apply D1 migrations
-- `npm run deploy`: build, run remote migrations, `wrangler deploy` (needs a Cloudflare account; set the real `database_id` in `wrangler.jsonc` first)
+- `npm run deploy`: build, run remote migrations, `wrangler deploy` (see **Deploying** below)
+- `npm run vapid`: print a new VAPID key pair for web push. `npm run icons`: regenerate `public/icons` from the SVG in `scripts/icons.mjs`.
 - `npm run smoke`: Playwright end-to-end smoke test (two phone browsers). Needs `npm run dev` running on a **fresh** local DB: `rm -rf .wrangler/state && npm run db:migrate:local`, with `SETUP_TOKEN=dev-setup` in `.dev.vars`.
 - `npm run test:rules`: API scenario test with a simulated clock (overdue → missed → penalty, swaps, away). Same fresh-DB requirement as the smoke test, plus `TEST_CLOCK=1` in `.dev.vars`. Run it and the smoke test on separate fresh DBs.
 - Local secrets go in `.dev.vars` (see `.dev.vars.example`). `FAKE_NOW=<ISO instant>` in `.dev.vars` makes the API pretend it's that time (for testing overdue and cron).
@@ -54,13 +55,26 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 - Penalty details: the debtor is the occurrence's current assignee. The target must be dated today or later, belong to someone else, not be another person's penalty shift, and not fall on a day the debtor is away. No penalty if the assignee was away on the due date or on the day it became missed.
 - Swaps: only the current assignee can propose, and only one pending request per occurrence. The other person can't be away that day. Accepting sets `override = swap`. Accepted swaps appear in History.
 - Away: anyone sets their own periods (no minimum length is enforced; the UI says it's for trips over 5 days). Changing away periods re-plans all tasks from today (`replanAll`). A swap or penalty shift on a day its holder is away is given up, and a released penalty goes back to *owed*.
-- `notify()` (`src/worker/services/notify.ts`) writes inbox rows (missed, extra shift, freed, swap proposed/accepted/declined) and skips members who are away today. Web push and the inbox screen come in phase 4.
+- `notify()` (`src/worker/services/notify.ts`) writes an inbox row and sends the same text as a web push (`services/push.ts`, VAPID via `@block65/webcrypto-web-push`). It skips members who are away today. Types: `daily_summary`, `missed`, `penalty`, `penalty_freed`, `swap_proposed`, `swap_accepted`, `swap_declined`. Subscriptions that return 404/410 are deleted. Without VAPID keys push is skipped and the inbox still works.
+- Daily summary (`sendDailySummary`): sent by the first hourly cron run from 09:00 London time (it checks the London hour, so GMT/BST is automatic), once per day via `job_runs`. Members with nothing due or overdue get nothing.
+- `POST /api/dev/cron` (only with `TEST_CLOCK=1`) runs the cron job at the simulated time.
+- PWA: `public/manifest.webmanifest`, `public/sw.js` (hand-written: push, notification click, network-first pages, cache-first hashed assets, never caches `/api`) and `public/icons`. No PWA build plugin.
+- The sixth tab is Inbox (the Notifications screen) with an unread badge. Opening it marks everything read. It also holds the "Turn on notifications" card, the iOS install steps and the Android install button.
+- On iOS, push only works in the installed home-screen app (iOS 16.4+), and permission must be requested from a tap.
 - `TEST_CLOCK=1` (dev only, never in production) lets a request set the time with an `x-test-now` header.
 - Set `WRANGLER_SEND_METRICS=false` in the sandbox, because telemetry hosts are blocked.
+
+## Deploying (Cloudflare, free tier)
+1. `npx wrangler login`
+2. `npx wrangler d1 create chores`, then put the printed `database_id` in `wrangler.jsonc`.
+3. Secrets, each with `npx wrangler secret put <NAME>`: `SETUP_TOKEN` (any long random string), `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY` (from `npm run vapid`), `VAPID_SUBJECT` (the app's `https://…workers.dev` address, or a `mailto:` address).
+4. `npm run deploy`
+5. Open `https://<app address>/setup?token=<SETUP_TOKEN>` once to create the household.
+- Never set `TEST_CLOCK` or `FAKE_NOW` in production.
 
 ## Build phases
 0. Scaffold ✅
 1. Invites and users, recurring tasks with rotation, quick ticks, Today screen, History ✅
 2. Calendar, Home screen, future-only edits ✅
 3. Swaps, overdue/missed and penalties, away mode ✅
-4. Push notifications, notifications tab, PWA install
+4. Push notifications, notifications tab, PWA install ✅ (built and tested locally; push delivery to real phones is not verified until the app is deployed)

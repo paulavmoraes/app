@@ -8,6 +8,7 @@ import { newId } from "../lib/tokens";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { loadAssignCtx } from "../services/context";
 import { notify } from "../services/notify";
+import { vapidFrom } from "../services/push";
 import { toOccurrenceDTO } from "./views";
 
 const fmt = (d: string) => new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" }).format(new Date(`${d}T00:00:00Z`));
@@ -56,7 +57,8 @@ export const swapRoutes = new Hono<AppEnv>()
     if (existing) throw conflict("There's already a pending swap for this one");
     const id = newId();
     await db.insert(swapRequests).values({ id, occurrenceId: row.occ.id, fromMemberId: me.id, toMemberId: to.id, status: "pending", createdAt: now.toISOString() });
-    await notify(db, { now, today, isAway: ctx.isAway }, to.id, {
+    await notify(db, { now, today, isAway: ctx.isAway, vapid: vapidFrom(c.env) }, to.id, {
+      url: "/",
       type: "swap_proposed",
       title: "Swap request",
       body: `${me.displayName} asks you to take ${row.taskName} on ${fmt(row.occ.scheduledDate)}.`,
@@ -88,7 +90,7 @@ export const swapRoutes = new Hono<AppEnv>()
     }
     if (swap.toMemberId !== me.id) throw badRequest("This request isn't for you");
     const ctx = await loadAssignCtx(db);
-    const nctx = { now, today, isAway: ctx.isAway };
+    const nctx = { now, today, isAway: ctx.isAway, vapid: vapidFrom(c.env) };
     const what = `${row.taskName} on ${fmt(occ.scheduledDate)}`;
 
     if (action === "decline") {
