@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { AppEnv } from "../env";
-import { members, occurrences, quickTicks, tasks } from "../db/schema";
+import { members, occurrences, penalties, quickTicks, swapRequests, tasks } from "../db/schema";
 import { daysOverdue } from "../../domain/generate";
 import type { CalendarDTO, HistoryDTO, HistoryItem, HomeDTO, OccurrenceDTO, QuickTaskDTO, TodayDTO } from "../../shared/types";
 import { diffDays, isISODate } from "../../domain/dates";
@@ -63,6 +63,7 @@ export const viewRoutes = new Hono<AppEnv>()
       dueToday: dtos.filter((o) => o.date === today),
       overdue: dtos.filter((o) => o.date < today),
       quick: await quickTaskList(db),
+      owedShifts: (await db.select({ id: penalties.id }).from(penalties).where(and(eq(penalties.debtorId, me.id), eq(penalties.status, "owed")))).length,
     };
     return c.json(body);
   })
@@ -127,7 +128,7 @@ export const viewRoutes = new Hono<AppEnv>()
       .parse(c.req.query());
     const db = c.var.db;
     const cursor = before ?? "9999";
-    const [done, missed, ticks] = await Promise.all([
+    const [done, missed, ticks, swaps] = await Promise.all([
       db
         .select({ occ: occurrences, taskName: tasks.name })
         .from(occurrences)
@@ -149,6 +150,14 @@ export const viewRoutes = new Hono<AppEnv>()
         .where(lt(quickTicks.at, cursor))
         .orderBy(desc(quickTicks.at))
         .limit(limit),
+      db
+        .select({ swap: swapRequests, date: occurrences.scheduledDate, taskName: tasks.name })
+        .from(swapRequests)
+        .innerJoin(occurrences, eq(occurrences.id, swapRequests.occurrenceId))
+        .innerJoin(tasks, eq(tasks.id, occurrences.taskId))
+        .where(and(eq(swapRequests.status, "accepted"), lt(swapRequests.respondedAt, cursor)))
+        .orderBy(desc(swapRequests.respondedAt))
+        .limit(limit),
     ]);
     const items: HistoryItem[] = [
       ...done.map(({ occ, taskName }) => ({
@@ -169,6 +178,15 @@ export const viewRoutes = new Hono<AppEnv>()
         assigneeId: occ.assigneeId,
       })),
       ...ticks.map(({ tick, taskName }) => ({ kind: "tick" as const, at: tick.at, tickId: tick.id, taskName, memberId: tick.memberId })),
+      ...swaps.map(({ swap, date, taskName }) => ({
+        kind: "swap" as const,
+        at: swap.respondedAt!,
+        swapId: swap.id,
+        taskName,
+        date,
+        fromMemberId: swap.fromMemberId,
+        toMemberId: swap.toMemberId,
+      })),
     ]
       .sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : 0))
       .slice(0, limit);

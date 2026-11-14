@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import { api } from "./api";
-import type { Member, SessionInfo } from "../shared/types";
+import type { AwayDTO, Member, SessionInfo, SwapDTO } from "../shared/types";
 
 export const useSession = () => useQuery({ queryKey: ["session"], queryFn: () => api.get<SessionInfo>("/session") });
 
@@ -16,3 +16,9 @@ export function useMe(): Member {
   const { data } = useSession();
   return data!.me!;
 }
+
+/** Pending swap requests I sent or received. */
+export const useSwaps = () => useQuery({ queryKey: ["swaps"], queryFn: () => api.get<SwapDTO[]>("/swaps") });
+
+/** Current and upcoming away periods of everyone. */
+export const useAway = () => useQuery({ queryKey: ["away"], queryFn: () => api.get<AwayDTO[]>("/away") });

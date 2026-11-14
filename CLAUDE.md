@@ -11,6 +11,7 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 - `npm run db:migrate:local` / `db:migrate:remote`: apply D1 migrations
 - `npm run deploy`: build, run remote migrations, `wrangler deploy` (needs a Cloudflare account; set the real `database_id` in `wrangler.jsonc` first)
 - `npm run smoke`: Playwright end-to-end smoke test (two phone browsers). Needs `npm run dev` running on a **fresh** local DB: `rm -rf .wrangler/state && npm run db:migrate:local`, with `SETUP_TOKEN=dev-setup` in `.dev.vars`.
+- `npm run test:rules`: API scenario test with a simulated clock (overdue → missed → penalty, swaps, away). Same fresh-DB requirement as the smoke test, plus `TEST_CLOCK=1` in `.dev.vars`. Run it and the smoke test on separate fresh DBs.
 - Local secrets go in `.dev.vars` (see `.dev.vars.example`). `FAKE_NOW=<ISO instant>` in `.dev.vars` makes the API pretend it's that time (for testing overdue and cron).
 - First run: open `/setup?token=<SETUP_TOKEN>` to create the household and the first member.
 
@@ -49,11 +50,17 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 - The calendar (`GET /api/calendar`, max 62 days) returns stored rows plus *projected* ones beyond the horizon (`projected: true`, which can't be completed or swapped).
 - Home shows, per task, every occurrence due up to today, or else only the next one, grouped by assignee.
 - Settings is opened from the avatar (top right). The tabs are Today, Home, Calendar, Tasks and History.
+- `runMaintenance` (`src/worker/services/rules.ts`) runs on every authed GET and from the hourly cron: top up the horizon → `detectMissed` → `applyOwedPenalties`. All three are idempotent. The pure rules are in `src/domain/penalty.ts`.
+- Penalty details: the debtor is the occurrence's current assignee. The target must be dated today or later, belong to someone else, not be another person's penalty shift, and not fall on a day the debtor is away. No penalty if the assignee was away on the due date or on the day it became missed.
+- Swaps: only the current assignee can propose, and only one pending request per occurrence. The other person can't be away that day. Accepting sets `override = swap`. Accepted swaps appear in History.
+- Away: anyone sets their own periods (no minimum length is enforced; the UI says it's for trips over 5 days). Changing away periods re-plans all tasks from today (`replanAll`). A swap or penalty shift on a day its holder is away is given up, and a released penalty goes back to *owed*.
+- `notify()` (`src/worker/services/notify.ts`) writes inbox rows (missed, extra shift, freed, swap proposed/accepted/declined) and skips members who are away today. Web push and the inbox screen come in phase 4.
+- `TEST_CLOCK=1` (dev only, never in production) lets a request set the time with an `x-test-now` header.
 - Set `WRANGLER_SEND_METRICS=false` in the sandbox, because telemetry hosts are blocked.
 
 ## Build phases
 0. Scaffold ✅
 1. Invites and users, recurring tasks with rotation, quick ticks, Today screen, History ✅
 2. Calendar, Home screen, future-only edits ✅
-3. Swaps, overdue/missed and penalties, away mode
+3. Swaps, overdue/missed and penalties, away mode ✅
 4. Push notifications, notifications tab, PWA install

@@ -119,6 +119,44 @@ try {
   await a.getByRole("link", { name: /Home/ }).click();
   await a.locator("section", { has: a.getByRole("heading", { name: "Ben" }) }).getByText("Wash the sink").waitFor();
 
+  // ---- Phase 3: swap and away mode (missed/penalty rules are covered by scripts/rules.mjs with a simulated clock)
+  step("Ben proposes that Ana takes his next sink shift");
+  await b.goto(`${BASE}/home`);
+  await b.locator("section", { has: b.getByRole("heading", { name: "Me" }) }).getByRole("button", { name: /Wash the sink/ }).click();
+  await b.getByRole("button", { name: "Propose swap" }).click();
+  await b.getByRole("button", { name: "Ask Ana" }).click();
+  await b.getByText("Waiting for Ana to answer").waitFor();
+  await shot(b, "swap-waiting");
+
+  step("Ana accepts on her Today screen; the shift moves to her and History logs it");
+  await a.goto(BASE);
+  await a.getByText(/Ben asks you to take Wash the sink/).waitFor();
+  await shot(a, "swap-request");
+  await a.getByRole("button", { name: "Accept" }).click();
+  await a.getByText("Swap accepted").waitFor();
+  await a.getByRole("link", { name: /Home/ }).click();
+  await a.locator("section", { has: a.getByRole("heading", { name: "Me" }) }).getByText("Wash the sink").waitFor();
+  await a.getByRole("link", { name: /History/ }).click();
+  await a.getByText(/Ana took .* from Ben/).waitFor();
+
+  step("Ben sets himself away; Home shows the badge and his shifts go to Ana");
+  await b.goto(`${BASE}/settings`);
+  await b.getByRole("button", { name: "Set away" }).click();
+  await b.getByRole("button", { name: "Remove" }).waitFor();
+  await shot(b, "away-settings");
+  await a.getByRole("link", { name: /Home/ }).click();
+  await a.getByText(/Away until/).waitFor();
+  await a.locator("section", { has: a.getByRole("heading", { name: /Ben/ }) }).getByText("Nothing coming up.").waitFor();
+  await shot(a, "home-away");
+
+  step("Ben comes back early; the badge goes away");
+  b.once("dialog", (d) => d.accept());
+  await b.getByRole("button", { name: "Remove" }).click();
+  await b.getByRole("button", { name: "Remove" }).waitFor({ state: "detached" });
+  await a.reload();
+  await a.getByRole("heading", { name: "Home" }).waitFor();
+  await a.getByText(/Away until/).waitFor({ state: "detached" });
+
   console.log("SMOKE OK");
 } catch (e) {
   console.error("SMOKE FAILED:", e.message);

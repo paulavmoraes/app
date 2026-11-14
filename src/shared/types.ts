@@ -48,11 +48,18 @@ export type TodayDTO = {
   dueToday: OccurrenceDTO[];
   overdue: OccurrenceDTO[];
   quick: QuickTaskDTO[];
+  /** Extra shifts I owe that haven't been given a date yet. */
+  owedShifts: number;
 };
+
+export type SwapDTO = { id: string; fromMemberId: string; toMemberId: string; createdAt: string; occurrence: OccurrenceDTO };
+
+export type AwayDTO = { id: string; memberId: string; startDate: string; endDate: string };
 
 export type HistoryItem =
   | { kind: "done"; at: string; occurrenceId: string; taskName: string; date: string; assigneeId: string; doneById: string }
   | { kind: "missed"; at: string; occurrenceId: string; taskName: string; date: string; assigneeId: string }
-  | { kind: "tick"; at: string; tickId: string; taskName: string; memberId: string };
+  | { kind: "tick"; at: string; tickId: string; taskName: string; memberId: string }
+  | { kind: "swap"; at: string; swapId: string; taskName: string; date: string; fromMemberId: string; toMemberId: string };
 
 export type HistoryDTO = { items: HistoryItem[]; nextCursor: string | null };

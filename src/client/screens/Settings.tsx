@@ -1,7 +1,9 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { useMe, useMembers, useSession } from "../hooks";
+import { useAway, useMe, useMembers, useSession } from "../hooks";
+import { formatDate, londonDate } from "../format";
+import { addDays } from "../../domain/dates";
 import { MEMBER_COLORS } from "../../shared/colors";
 import { Avatar, Button, Card, ColorPicker, ErrorText, Field, inputClass } from "../components/ui";
 
@@ -33,6 +35,30 @@ export function SettingsScreen() {
   const choosable = MEMBER_COLORS.filter((c) => c === me.color || available.data?.includes(c));
 
   useEffect(() => setSaved(false), [displayName, color]);
+
+  const away = useAway();
+  const myAway = (away.data ?? []).filter((p) => p.memberId === me.id);
+  const todayDate = londonDate(new Date().toISOString());
+  const [awayStart, setAwayStart] = useState(todayDate);
+  const [awayEnd, setAwayEnd] = useState(addDays(todayDate, 7));
+  const [awayError, setAwayError] = useState<unknown>(null);
+
+  async function addAway(e: React.FormEvent) {
+    e.preventDefault();
+    setAwayError(null);
+    try {
+      await api.post("/away", { startDate: awayStart, endDate: awayEnd });
+    } catch (err) {
+      setAwayError(err);
+    }
+    await qc.invalidateQueries();
+  }
+
+  async function removeAway(id: string) {
+    if (!confirm("Remove this away period? Your shifts in it come back to you.")) return;
+    await api.del(`/away/${id}`);
+    await qc.invalidateQueries();
+  }
 
   async function saveProfile(e: React.FormEvent) {
     e.preventDefault();
@@ -109,6 +135,37 @@ export function SettingsScreen() {
             </Button>
           </div>
         )}
+      </Card>
+
+      <Card className="space-y-3">
+        <h2 className="font-semibold">Away mode</h2>
+        <p className="text-sm text-slate-600">
+          For longer trips (more than 5 days). While you're away the rotation skips you, the others cover your shifts, and you get no penalties or notifications. Nothing is owed when you're back.
+        </p>
+        {myAway.map((p) => (
+          <div key={p.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3">
+            <span className="flex-1">
+              {formatDate(p.startDate)} – {formatDate(p.endDate)}
+            </span>
+            <Button variant="ghost" className="text-sm" onClick={() => removeAway(p.id)}>
+              Remove
+            </Button>
+          </div>
+        ))}
+        <form onSubmit={addAway} className="space-y-3">
+          <div className="flex gap-2">
+            <Field label="From">
+              <input type="date" className={inputClass} value={awayStart} onChange={(e) => setAwayStart(e.target.value)} required />
+            </Field>
+            <Field label="Until (inclusive)">
+              <input type="date" className={inputClass} value={awayEnd} min={awayStart} onChange={(e) => setAwayEnd(e.target.value)} required />
+            </Field>
+          </div>
+          <ErrorText error={awayError} />
+          <Button variant="secondary" className="w-full">
+            Set away
+          </Button>
+        </form>
       </Card>
 
       <Card className="space-y-3">

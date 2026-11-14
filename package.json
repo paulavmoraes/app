@@ -12,7 +12,8 @@
     "db:migrate:local": "wrangler d1 migrations apply chores --local",
     "db:migrate:remote": "wrangler d1 migrations apply chores --remote",
     "deploy": "npm run build && wrangler d1 migrations apply chores --remote && wrangler deploy",
-    "smoke": "node scripts/smoke.mjs"
+    "smoke": "node scripts/smoke.mjs",
+    "test:rules": "node scripts/rules.mjs"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.107.1",

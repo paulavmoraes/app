@@ -66,6 +66,7 @@ export async function reconcileSeries(db: Db, taskId: string, version: Version, 
   const plan = planRegeneration(
     existing.map((e) => ({ id: e.id, date: e.scheduledDate, status: e.status, assigneeId: e.assigneeId, override: e.override })),
     generated,
+    ctx.isAway,
   );
   const nowIso = now.toISOString();
   const prev = new Map(existing.map((e) => [e.id, e]));
@@ -94,11 +95,10 @@ export async function reconcileSeries(db: Db, taskId: string, version: Version, 
   for (const g of plan.insert) stmts.push(db.insert(occurrences).values(occurrenceRow(taskId, version, g, nowIso)));
   if (plan.cancel.length) {
     stmts.push(db.update(occurrences).set({ status: "cancelled" }).where(inArray(occurrences.id, plan.cancel.map((c) => c.id))));
-    // A penalty shift that disappears goes back to being owed.
-    const penaltyIds = plan.cancel.filter((c) => c.override === "penalty").map((c) => c.id);
-    if (penaltyIds.length) {
-      stmts.push(db.update(penalties).set({ status: "owed", appliedOccurrenceId: null }).where(inArray(penalties.appliedOccurrenceId, penaltyIds)));
-    }
+  }
+  // A penalty shift that disappears or is reassigned goes back to being owed.
+  if (plan.releasePenalties.length) {
+    stmts.push(db.update(penalties).set({ status: "owed", appliedOccurrenceId: null }).where(inArray(penalties.appliedOccurrenceId, plan.releasePenalties)));
   }
   if (plan.cancelSwapsFor.length) {
     stmts.push(

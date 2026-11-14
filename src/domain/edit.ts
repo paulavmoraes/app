@@ -34,6 +34,8 @@ export type RegenerationPlan = {
   cancel: { id: string; override: ExistingRow["override"] }[];
   /** Pending swap proposals on these occurrences must be cancelled (row removed or assignee changed). */
   cancelSwapsFor: string[];
+  /** Occurrences that stop being someone's penalty shift (cancelled or reassigned) → the penalty is owed again. */
+  releasePenalties: string[];
 };
 
 /**
@@ -41,10 +43,14 @@ export type RegenerationPlan = {
  * Done/missed rows are never touched (their dates are skipped). Overdue rows (before today)
  * must not be passed in at all.
  */
-export function planRegeneration(existing: ExistingRow[], generated: GeneratedOccurrence[]): RegenerationPlan {
+export function planRegeneration(
+  existing: ExistingRow[],
+  generated: GeneratedOccurrence[],
+  isAway: (memberId: string, date: ISODate) => boolean = () => false,
+): RegenerationPlan {
   const byDate = new Map(existing.map((e) => [e.date, e]));
   const generatedDates = new Set(generated.map((g) => g.date));
-  const plan: RegenerationPlan = { update: [], insert: [], cancel: [], cancelSwapsFor: [] };
+  const plan: RegenerationPlan = { update: [], insert: [], cancel: [], cancelSwapsFor: [], releasePenalties: [] };
 
   for (const g of generated) {
     const e = byDate.get(g.date);
@@ -53,8 +59,10 @@ export function planRegeneration(existing: ExistingRow[], generated: GeneratedOc
       continue;
     }
     if (e.status === "done" || e.status === "missed") continue;
-    const keepAssignee = e.status === "pending" && (e.override === "swap" || e.override === "penalty");
+    // A swap or penalty shift survives, unless that person is now away on the day.
+    const keepAssignee = e.status === "pending" && (e.override === "swap" || e.override === "penalty") && !isAway(e.assigneeId, e.date);
     plan.update.push({ id: e.id, gen: g, keepAssignee });
+    if (e.status === "pending" && !keepAssignee && e.override === "penalty") plan.releasePenalties.push(e.id);
     if (e.status === "pending" && !keepAssignee && e.assigneeId !== g.assigneeId) plan.cancelSwapsFor.push(e.id);
   }
 
@@ -62,6 +70,7 @@ export function planRegeneration(existing: ExistingRow[], generated: GeneratedOc
     if (e.status === "pending" && !generatedDates.has(e.date)) {
       plan.cancel.push({ id: e.id, override: e.override });
       plan.cancelSwapsFor.push(e.id);
+      if (e.override === "penalty") plan.releasePenalties.push(e.id);
     }
   }
   return plan;

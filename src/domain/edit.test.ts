@@ -69,4 +69,15 @@ describe("planRegeneration: edits only affect the future", () => {
     expect(plan.update[0]).toMatchObject({ id: "old", keepAssignee: false });
     expect(plan.cancelSwapsFor).toEqual([]);
   });
+
+  it("a swap or penalty shift is given up when that person is away on the day", () => {
+    const existing: ExistingRow[] = [
+      { id: "w25", date: "2026-11-25", status: "pending", assigneeId: "C", override: "penalty" },
+      { id: "w02", date: "2026-12-02", status: "pending", assigneeId: "A", override: "swap" },
+    ];
+    const plan = planRegeneration(existing, gen, (who, d) => who === "C" && d === "2026-11-25");
+    expect(plan.update.map((u) => u.keepAssignee)).toEqual([false, true]);
+    expect(plan.releasePenalties).toEqual(["w25"]);
+    expect(plan.cancelSwapsFor).toEqual(["w25"]);
+  });
 });

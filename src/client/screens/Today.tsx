@@ -2,7 +2,7 @@ import { useCallback, useState } from "react";
 import { useSearchParams } from "react-router";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "../api";
-import { useMe, useMemberMap, useMembers } from "../hooks";
+import { useMe, useMemberMap, useMembers, useSwaps } from "../hooks";
 import { formatDate, overdueLabel, relativeTime } from "../format";
 import type { OccurrenceDTO, TodayDTO } from "../../shared/types";
 import { Avatar, Button, Card, Empty, ErrorText, Sheet, Toast } from "../components/ui";
@@ -19,6 +19,19 @@ export function TodayScreen() {
   const [toast, setToast] = useState<ToastState>(null);
   const clearToast = useCallback(() => setToast(null), []);
   const refresh = () => qc.invalidateQueries();
+  const swaps = useSwaps();
+  const incoming = (swaps.data ?? []).filter((s) => s.toMemberId === me.id);
+  const outgoing = (swaps.data ?? []).filter((s) => s.fromMemberId === me.id);
+
+  async function answer(swapId: string, action: "accept" | "decline" | "cancel") {
+    try {
+      await api.post(`/swaps/${swapId}/${action}`);
+      setToast({ message: action === "accept" ? "Swap accepted: it's yours now" : action === "decline" ? "Swap declined" : "Request cancelled" });
+    } catch (err) {
+      setToast({ message: err instanceof Error ? err.message : "Something went wrong" });
+    }
+    await refresh();
+  }
 
   async function tick(taskId: string, name: string) {
     const { id } = await api.post<{ id: string }>(`/quick/${taskId}/tick`);
@@ -35,7 +48,7 @@ export function TodayScreen() {
       </header>
 
       {params.get("welcome") && (
-        <Card className="bg-teal-50 ring-teal-200">
+        <Card className="bg-teal-50! ring-teal-200!">
           <p className="font-medium">You're in! 🎉</p>
           <p className="mt-1 text-sm text-slate-700">
             Add this app to your home screen: on iPhone tap <b>Share → Add to Home Screen</b>. Then open it from the home screen and sign in
@@ -48,6 +61,45 @@ export function TodayScreen() {
       )}
 
       <ErrorText error={today.error} />
+
+      {(incoming.length > 0 || outgoing.length > 0) && (
+        <section>
+          <h2 className="mb-2 font-semibold">Swap requests</h2>
+          <div className="space-y-2">
+            {incoming.map((s) => (
+              <Card key={s.id} className="space-y-3 bg-amber-50! ring-amber-200!">
+                <p>
+                  <b>{memberMap.get(s.fromMemberId)?.displayName}</b> asks you to take <b>{s.occurrence.taskName}</b> on {formatDate(s.occurrence.date)}.
+                </p>
+                <div className="flex gap-2">
+                  <Button variant="secondary" className="flex-1" onClick={() => answer(s.id, "decline")}>
+                    Decline
+                  </Button>
+                  <Button className="flex-1" onClick={() => answer(s.id, "accept")}>
+                    Accept
+                  </Button>
+                </div>
+              </Card>
+            ))}
+            {outgoing.map((s) => (
+              <Card key={s.id} className="flex items-center gap-3">
+                <p className="min-w-0 flex-1 text-sm text-slate-600">
+                  Waiting for {memberMap.get(s.toMemberId)?.displayName}: {s.occurrence.taskName}, {formatDate(s.occurrence.date)}
+                </p>
+                <Button variant="ghost" className="text-sm" onClick={() => answer(s.id, "cancel")}>
+                  Cancel
+                </Button>
+              </Card>
+            ))}
+          </div>
+        </section>
+      )}
+
+      {d && d.owedShifts > 0 && (
+        <Card className="bg-red-50! text-sm ring-red-200!">
+          You owe {d.owedShifts} extra shift{d.owedShifts === 1 ? "" : "s"}. {d.owedShifts === 1 ? "It" : "They"}'ll be assigned as soon as someone else has a task coming up.
+        </Card>
+      )}
 
       {d && d.overdue.length > 0 && (
         <section>
@@ -128,6 +180,8 @@ function OccurrenceRow({ occ, subtitle, danger, onDone }: { occ: OccurrenceDTO; 
         <p className={`text-sm ${danger ? "text-red-700" : "text-slate-500"}`}>
           {subtitle ?? formatDate(occ.date)}
           {occ.override === "away_cover" && " · covering"}
+          {occ.override === "penalty" && " · extra shift"}
+          {occ.override === "swap" && " · swapped"}
         </p>
       </div>
       <Button onClick={onDone} aria-label={`Mark ${occ.taskName} done`}>

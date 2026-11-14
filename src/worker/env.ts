@@ -9,6 +9,8 @@ export type Env = {
   SETUP_TOKEN?: string;
   /** Dev/test only: pretend the current time is this ISO instant. */
   FAKE_NOW?: string;
+  /** Dev/test only: "1" lets a request set the time with an `x-test-now` header. Never set in production. */
+  TEST_CLOCK?: string;
 };
 
 export type Db = DrizzleD1Database<typeof schema>;
