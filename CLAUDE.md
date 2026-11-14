@@ -10,7 +10,9 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 - `npm run db:generate`: generate a migration from `src/worker/db/schema.ts`
 - `npm run db:migrate:local` / `db:migrate:remote`: apply D1 migrations
 - `npm run deploy`: build, run remote migrations, `wrangler deploy` (needs a Cloudflare account; set the real `database_id` in `wrangler.jsonc` first)
-- Local secrets go in `.dev.vars` (see `.dev.vars.example`).
+- `npm run smoke`: Playwright end-to-end smoke test (two phone browsers). Needs `npm run dev` running on a **fresh** local DB: `rm -rf .wrangler/state && npm run db:migrate:local`, with `SETUP_TOKEN=dev-setup` in `.dev.vars`.
+- Local secrets go in `.dev.vars` (see `.dev.vars.example`). `FAKE_NOW=<ISO instant>` in `.dev.vars` makes the API pretend it's that time (for testing overdue and cron).
+- First run: open `/setup?token=<SETUP_TOKEN>` to create the household and the first member.
 
 ## Stack and layout
 - Cloudflare Worker (Hono) serves `/api/*` and the static React app (SPA fallback). D1 (SQLite) via Drizzle. An hourly Cron Trigger handles scheduling.
@@ -37,9 +39,14 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 - **No scores, streaks or "who does more" stats.** History is a plain log.
 - **Out of scope for the MVP:** gamification, effort points, checklists, rooms, multiple households.
 
+## Implementation notes
+- Occurrences are stored up to 90 days ahead (`HORIZON_DAYS`). They're topped up on every authed GET and by the hourly cron. Each row stores the rotation state after it (`pointer_after`, `cover_after`) so generation continues deterministically.
+- Completion-anchored tasks have exactly one pending occurrence. Completing one creates the next (`spawned_by_id`), and undo deletes it again.
+- D1 enforces foreign keys, so archive **cancels** pending occurrences instead of deleting them.
+
 ## Build phases
 0. Scaffold ✅
-1. Invites and users, recurring tasks with rotation, quick ticks, Today screen, History
+1. Invites and users, recurring tasks with rotation, quick ticks, Today screen, History ✅
 2. Calendar, Home screen, future-only edits
 3. Swaps, overdue/missed and penalties, away mode
 4. Push notifications, notifications tab, PWA install
