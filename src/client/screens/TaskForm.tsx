@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
-import { useNavigate } from "react-router";
-import { useQueryClient } from "@tanstack/react-query";
+import { useEffect, useMemo, useState } from "react";
+import { useNavigate, useParams } from "react-router";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import type { TaskDTO } from "../../shared/types";
 import { api } from "../api";
 import { useMemberMap, useMembers } from "../hooks";
 import { formatDate, londonDate, WEEKDAYS } from "../format";
@@ -53,6 +54,40 @@ export function TaskFormScreen() {
   const [error, setError] = useState<unknown>(null);
   const [busy, setBusy] = useState(false);
 
+  // Edit mode: prefill from the task's current version.
+  const { id } = useParams();
+  const editing = !!id;
+  const tasks = useQuery({ queryKey: ["tasks"], queryFn: () => api.get<TaskDTO[]>("/tasks"), enabled: editing });
+  const original = tasks.data?.find((t) => t.id === id);
+  const [loaded, setLoaded] = useState(false);
+  useEffect(() => {
+    if (!original || loaded) return;
+    setLoaded(true);
+    setKind(original.kind);
+    setName(original.name);
+    const s = original.schedule;
+    if (s) {
+      setScheduleType(s.type);
+      if (s.type === "weekdays") {
+        setWeekdays(s.weekdays);
+        setStartDate(s.startDate > today ? s.startDate : today);
+      } else {
+        setN(s.n);
+        setUnit(s.unit);
+        setAnchor(s.anchor);
+        setStartDate(s.startDate);
+      }
+    }
+    const a = original.assignment;
+    if (a?.mode === "fixed") {
+      setMode("fixed");
+      setFixedId(a.memberId);
+    } else if (a) {
+      setMode("rotation");
+      setOrder(a.order);
+    }
+  }, [original, loaded, today]);
+
   const rotation = order ?? members.map((m) => m.id);
   const fixed = fixedId || members[0]?.id || "";
 
@@ -61,8 +96,15 @@ export function TaskFormScreen() {
   const assignment: Assignment = mode === "fixed" ? { mode: "fixed", memberId: fixed } : { mode: "rotation", order: rotation };
   const valid = name.trim() && (kind === "quick" || ((scheduleType === "interval" || weekdays.length > 0) && (mode === "fixed" ? fixed : rotation.length > 0)));
 
-  const preview = useMemo(() => {
-    if (kind !== "recurring" || !valid) return [];
+  const serverPreview = useQuery({
+    queryKey: ["preview", id, JSON.stringify(schedule), JSON.stringify(assignment)],
+    queryFn: () => api.post<{ date: string; assigneeId: string }[]>(`/tasks/${id}/preview`, { schedule, assignment }),
+    enabled: editing && loaded && kind === "recurring" && !!valid,
+    placeholderData: (prev) => prev,
+  });
+
+  const localPreview = useMemo(() => {
+    if (editing || kind !== "recurring" || !valid) return [];
     const ctx = { members: members.map((m) => m.id), isAway: () => false };
     if (hasFixedSeries(schedule)) {
       return generateSeries(schedule, assignment, initialState(assignment), startDate, addDays(startDate, 800), ctx).occurrences.slice(0, 6);
@@ -79,7 +121,8 @@ export function TaskFormScreen() {
       after = g.date;
     }
     return out;
-  }, [kind, valid, JSON.stringify(schedule), JSON.stringify(assignment), members]);
+  }, [editing, kind, valid, JSON.stringify(schedule), JSON.stringify(assignment), members]);
+  const preview = editing ? (serverPreview.data ?? []) : localPreview;
 
   function move(i: number, dir: -1 | 1) {
     const next = [...rotation];
@@ -98,7 +141,8 @@ export function TaskFormScreen() {
     setBusy(true);
     setError(null);
     try {
-      await api.post("/tasks", kind === "quick" ? { kind, name } : { kind, name, schedule, assignment });
+      if (editing) await api.patch(`/tasks/${id}`, kind === "quick" ? { name } : { name, schedule, assignment });
+      else await api.post("/tasks", kind === "quick" ? { kind, name } : { kind, name, schedule, assignment });
       await qc.invalidateQueries();
       navigate("/tasks");
     } catch (err) {
@@ -114,9 +158,16 @@ export function TaskFormScreen() {
         <Button type="button" variant="ghost" className="-ml-4" onClick={() => navigate(-1)}>
           ‹ Back
         </Button>
-        <h1 className="text-2xl font-semibold">New task</h1>
+        <h1 className="text-2xl font-semibold">{editing ? "Edit task" : "New task"}</h1>
       </header>
 
+      {editing && kind === "recurring" && (
+        <p className="rounded-xl bg-amber-50 p-3 text-sm text-amber-900 ring-1 ring-amber-200">
+          Changes apply from today. Past and overdue occurrences keep their date and person. The rotation carries on with whoever is next up.
+        </p>
+      )}
+
+      {!editing && (
       <Segmented
         value={kind}
         onChange={setKind}
@@ -125,6 +176,7 @@ export function TaskFormScreen() {
           { value: "quick", label: "Quick tick" },
         ]}
       />
+      )}
 
       <Field label="Name">
         <input className={inputClass} value={name} onChange={(e) => setName(e.target.value)} required maxLength={60} placeholder={kind === "quick" ? "Take out the bins" : "Clean the microwave"} />
@@ -191,9 +243,11 @@ export function TaskFormScreen() {
             </>
           )}
 
-          <Field label={scheduleType === "weekdays" ? "Starting from" : "First due date"}>
+          {!(editing && scheduleType === "interval" && anchor === "completion") && (
+          <Field label={scheduleType === "weekdays" ? "Starting from" : anchor === "schedule" ? "Series starts on (dates repeat from here)" : "First due date"}>
             <input type="date" className={inputClass} value={startDate} onChange={(e) => setStartDate(e.target.value)} required />
           </Field>
+          )}
 
           <Field label="Who does it">
             <Segmented
@@ -222,7 +276,11 @@ export function TaskFormScreen() {
             </div>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm text-slate-600">Order of the rotation (first person starts). It moves to the next person on every occurrence.</p>
+              <p className="text-sm text-slate-600">
+                {editing
+                  ? "Order of the rotation. It moves to the next person on every occurrence; whoever is next up now stays next up."
+                  : "Order of the rotation (first person starts). It moves to the next person on every occurrence."}
+              </p>
               {rotation.map((id, i) => (
                 <div key={id} className="flex items-center gap-2 rounded-xl bg-white p-2 ring-1 ring-slate-200">
                   <span className="w-5 text-center text-sm text-slate-500">{i + 1}</span>
@@ -262,7 +320,9 @@ export function TaskFormScreen() {
                 ))}
               </ul>
               {schedule.type === "interval" && schedule.anchor === "completion" && (
-                <p className="mt-2 text-xs text-slate-500">Assuming each one is done on its due date.</p>
+                <p className="mt-2 text-xs text-slate-500">
+                  {editing ? "Counted from the last completion, assuming each one is done on its due date. An overdue one stays as it is." : "Assuming each one is done on its due date."}
+                </p>
               )}
             </Card>
           )}
@@ -270,8 +330,8 @@ export function TaskFormScreen() {
       )}
 
       <ErrorText error={error} />
-      <Button className="w-full" disabled={busy || !valid}>
-        Create
+      <Button className="w-full" disabled={busy || !valid || (editing && !loaded)}>
+        {editing ? "Save changes" : "Create"}
       </Button>
     </form>
   );

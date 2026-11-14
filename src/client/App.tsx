@@ -1,6 +1,9 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, NavLink, Navigate, Outlet, Route, Routes } from "react-router";
+import { BrowserRouter, Link, NavLink, Navigate, Outlet, Route, Routes } from "react-router";
 import { useSession } from "./hooks";
+import { Avatar } from "./components/ui";
+import { HomeScreen } from "./screens/Home";
+import { CalendarScreen } from "./screens/Calendar";
 import { SetupScreen } from "./screens/Setup";
 import { JoinScreen } from "./screens/Join";
 import { PairScreen } from "./screens/Pair";
@@ -26,7 +29,10 @@ export function App() {
           <Route element={<SignedInShell />}>
             <Route index element={<TodayScreen />} />
             <Route path="tasks" element={<TasksScreen />} />
+            <Route path="home" element={<HomeScreen />} />
+            <Route path="calendar" element={<CalendarScreen />} />
             <Route path="tasks/new" element={<TaskFormScreen />} />
+            <Route path="tasks/:id/edit" element={<TaskFormScreen />} />
             <Route path="history" element={<HistoryScreen />} />
             <Route path="settings" element={<SettingsScreen />} />
           </Route>
@@ -39,9 +45,10 @@ export function App() {
 
 const tabs = [
   { to: "/", label: "Today", icon: "☀️" },
+  { to: "/home", label: "Home", icon: "🏠" },
+  { to: "/calendar", label: "Calendar", icon: "📅" },
   { to: "/tasks", label: "Tasks", icon: "📋" },
   { to: "/history", label: "History", icon: "🕘" },
-  { to: "/settings", label: "Settings", icon: "⚙️" },
 ];
 
 function SignedInShell() {
@@ -51,7 +58,10 @@ function SignedInShell() {
   if (data?.setupNeeded) return <Navigate to="/setup" replace />;
   if (!data?.me) return <SignedOutScreen />;
   return (
-    <div className="mx-auto min-h-dvh max-w-md pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+    <div className="relative mx-auto min-h-dvh max-w-md pb-[calc(4.5rem+env(safe-area-inset-bottom))]">
+      <Link to="/settings" className="absolute top-[calc(0.75rem+env(safe-area-inset-top))] right-4 z-20" aria-label="Settings">
+        <Avatar member={data.me} size={36} />
+      </Link>
       <main className="px-4 pt-[calc(1rem+env(safe-area-inset-top))]">
         <Outlet />
       </main>

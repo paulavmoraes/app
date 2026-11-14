@@ -40,7 +40,7 @@ app.route("/", authRoutes);
 const authed = new Hono<AppEnv>();
 authed.use(requireMember);
 authed.use(async (c, next) => {
-  if (c.req.method === "GET") await materializeAll(c.var.db, c.var.today, c.var.now);
+  if (c.req.method === "GET") await materializeAll(c.var.db, c.var.today, c.var.now, c.env.APP_TIMEZONE);
   await next();
 });
 authed.route("/tasks", taskRoutes);
@@ -54,7 +54,7 @@ export default {
   async scheduled(_controller: ScheduledController, env: Env, _ctx: ExecutionContext) {
     const now = clock(env);
     const db = drizzle(env.DB, { schema });
-    await materializeAll(db, dateInTz(now, env.APP_TIMEZONE), now);
+    await materializeAll(db, dateInTz(now, env.APP_TIMEZONE), now, env.APP_TIMEZONE);
     // Missed detection and the 09:00 daily summary arrive in phases 3 and 4.
   },
 } satisfies ExportedHandler<Env>;

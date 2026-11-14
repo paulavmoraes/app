@@ -83,6 +83,42 @@ try {
   await a.getByText(/^Ana · due/).waitFor();
   await shot(a, "history");
 
+  // ---- Phase 2: Home, Calendar, future-only edits
+  step("Home groups tasks by person: tomorrow's sink is Ben's");
+  await a.getByRole("link", { name: /Home/ }).click();
+  const benSection = a.locator("section", { has: a.getByRole("heading", { name: "Ben" }) });
+  await benSection.getByText("Wash the sink").waitFor();
+  await shot(a, "home");
+
+  step("Calendar month view, filtered by person");
+  await a.getByRole("link", { name: /Calendar/ }).click();
+  await a.getByRole("heading", { name: /\w+ \d{4}/ }).waitFor();
+  await a.locator("li").getByText("Wash the sink").first().waitFor();
+  await a.getByLabel("Filter by person").selectOption({ label: "Ben" });
+  await a.getByRole("button", { name: "Next", exact: true }).click();
+  const chips = await a.locator("li button").allInnerTexts();
+  if (chips.some((t) => t.includes("Ana"))) throw new Error("person filter leaked Ana");
+  await a.getByRole("button", { name: "Week" }).click();
+  await shot(a, "calendar-week");
+  await a.getByRole("button", { name: "Month" }).click();
+  await a.getByRole("button", { name: "Today" }).click();
+  await a.getByLabel("Filter by person").selectOption({ label: "Everyone" });
+  await shot(a, "calendar-month");
+
+  step("Edit: swap the rotation order; today's completed one is untouched, the rotation carries on");
+  await a.getByRole("link", { name: /Tasks/ }).click();
+  await a.getByRole("button", { name: "Edit" }).first().click();
+  await a.getByText("Changes apply from today").waitFor();
+  await a.getByRole("button", { name: "Move up" }).nth(1).click();
+  await a.getByText("Next occurrences").waitFor();
+  await shot(a, "edit-form");
+  await a.getByRole("button", { name: "Save changes" }).click();
+  await a.getByText("Rotation: Ben → Ana").waitFor();
+  await a.getByRole("link", { name: /History/ }).click();
+  await a.getByText(/^Ana · due/).waitFor();
+  await a.getByRole("link", { name: /Home/ }).click();
+  await a.locator("section", { has: a.getByRole("heading", { name: "Ben" }) }).getByText("Wash the sink").waitFor();
+
   console.log("SMOKE OK");
 } catch (e) {
   console.error("SMOKE FAILED:", e.message);

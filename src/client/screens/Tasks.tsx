@@ -41,9 +41,16 @@ export function TasksScreen() {
                 <p className="text-sm text-slate-500">{t.schedule && describeSchedule(t.schedule)}</p>
                 <p className="text-sm text-slate-500">{t.assignment && describeAssignment(t.assignment, members)}</p>
               </div>
-              <Button variant="ghost" className="text-sm" onClick={() => archive(t)}>
-                Archive
-              </Button>
+              <div className="flex flex-col">
+                <Link to={`/tasks/${t.id}/edit`}>
+                  <Button variant="ghost" className="text-sm">
+                    Edit
+                  </Button>
+                </Link>
+                <Button variant="ghost" className="text-sm" onClick={() => archive(t)}>
+                  Archive
+                </Button>
+              </div>
             </Card>
           ))}
         </div>
@@ -56,6 +63,11 @@ export function TasksScreen() {
           {quick.map((t) => (
             <Card key={t.id} className="flex items-center gap-3">
               <p className="flex-1 font-medium">{t.name}</p>
+              <Link to={`/tasks/${t.id}/edit`}>
+                <Button variant="ghost" className="text-sm">
+                  Rename
+                </Button>
+              </Link>
               <Button variant="ghost" className="text-sm" onClick={() => archive(t)}>
                 Archive
               </Button>

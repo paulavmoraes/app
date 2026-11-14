@@ -1,10 +1,14 @@
 import { Hono } from "hono";
 import { z } from "zod";
-import { and, asc, desc, eq, inArray, isNull, lt, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, lte, sql } from "drizzle-orm";
 import type { AppEnv } from "../env";
-import { occurrences, quickTicks, tasks } from "../db/schema";
+import { members, occurrences, quickTicks, tasks } from "../db/schema";
 import { daysOverdue } from "../../domain/generate";
-import type { HistoryDTO, HistoryItem, OccurrenceDTO, QuickTaskDTO, TodayDTO } from "../../shared/types";
+import type { CalendarDTO, HistoryDTO, HistoryItem, HomeDTO, OccurrenceDTO, QuickTaskDTO, TodayDTO } from "../../shared/types";
+import { diffDays, isISODate } from "../../domain/dates";
+import { badRequest } from "../lib/errors";
+import { projectedOccurrences } from "../services/project";
+import { loadAssignCtx } from "../services/context";
 
 export function toOccurrenceDTO(row: { occ: typeof occurrences.$inferSelect; taskName: string }, today: string): OccurrenceDTO {
   const o = row.occ;
@@ -59,6 +63,60 @@ export const viewRoutes = new Hono<AppEnv>()
       dueToday: dtos.filter((o) => o.date === today),
       overdue: dtos.filter((o) => o.date < today),
       quick: await quickTaskList(db),
+    };
+    return c.json(body);
+  })
+
+  .get("/calendar", async (c) => {
+    const { from, to } = z.object({ from: z.string().refine(isISODate), to: z.string().refine(isISODate) }).parse(c.req.query());
+    if (to < from || diffDays(to, from) > 62) throw badRequest("Range must be 1–62 days");
+    const { db, today } = c.var;
+    const stored = await db
+      .select({ occ: occurrences, taskName: tasks.name })
+      .from(occurrences)
+      .innerJoin(tasks, eq(tasks.id, occurrences.taskId))
+      .where(and(gte(occurrences.scheduledDate, from), lte(occurrences.scheduledDate, to), inArray(occurrences.status, ["pending", "done", "missed"])));
+    const names = new Map((await db.select({ id: tasks.id, name: tasks.name }).from(tasks)).map((t) => [t.id, t.name]));
+    const projected: OccurrenceDTO[] = (await projectedOccurrences(db, from, to, await loadAssignCtx(db))).map((p) => ({
+      id: `projected:${p.taskId}:${p.date}`,
+      taskId: p.taskId,
+      taskName: names.get(p.taskId) ?? "",
+      date: p.date,
+      status: "pending",
+      assigneeId: p.assigneeId,
+      override: p.override,
+      daysOverdue: 0,
+      completedAt: null,
+      completedById: null,
+      projected: true,
+    }));
+    const all = [...stored.map((r) => toOccurrenceDTO(r, today)), ...projected].sort((a, b) =>
+      a.date === b.date ? a.taskName.localeCompare(b.taskName) : a.date < b.date ? -1 : 1,
+    );
+    const body: CalendarDTO = { from, to, today, occurrences: all };
+    return c.json(body);
+  })
+
+  .get("/home", async (c) => {
+    const { db, today } = c.var;
+    const pending = await db
+      .select({ occ: occurrences, taskName: tasks.name })
+      .from(occurrences)
+      .innerJoin(tasks, eq(tasks.id, occurrences.taskId))
+      .where(and(eq(occurrences.status, "pending"), isNull(tasks.archivedAt)))
+      .orderBy(asc(occurrences.scheduledDate));
+    // Per task: everything due up to today, or else just the next one.
+    const picked: OccurrenceDTO[] = [];
+    const seen = new Set<string>();
+    for (const r of pending) {
+      const due = r.occ.scheduledDate <= today;
+      if (due || !seen.has(r.occ.taskId)) picked.push(toOccurrenceDTO(r, today));
+      seen.add(r.occ.taskId);
+    }
+    const ms = await db.select({ id: members.id }).from(members).orderBy(asc(members.sortOrder));
+    const body: HomeDTO = {
+      today,
+      groups: ms.map((m) => ({ memberId: m.id, items: picked.filter((o) => o.assigneeId === m.id) })),
     };
     return c.json(body);
   })

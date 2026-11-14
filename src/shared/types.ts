@@ -29,7 +29,13 @@ export type OccurrenceDTO = {
   daysOverdue: number;
   completedAt: string | null;
   completedById: string | null;
+  /** Beyond the stored horizon: computed on the fly, can't be swapped yet. */
+  projected?: boolean;
 };
+
+export type CalendarDTO = { from: string; to: string; today: string; occurrences: OccurrenceDTO[] };
+
+export type HomeDTO = { today: string; groups: { memberId: string; items: OccurrenceDTO[] }[] };
 
 export type QuickTaskDTO = {
   taskId: string;

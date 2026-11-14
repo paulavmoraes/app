@@ -42,11 +42,18 @@ A chores tracker for a single household (2–3 flatmates). It is a mobile-first,
 ## Implementation notes
 - Occurrences are stored up to 90 days ahead (`HORIZON_DAYS`). They're topped up on every authed GET and by the hourly cron. Each row stores the rotation state after it (`pointer_after`, `cover_after`) so generation continues deterministically.
 - Completion-anchored tasks have exactly one pending occurrence. Completing one creates the next (`spawned_by_id`), and undo deletes it again.
-- D1 enforces foreign keys, so archive **cancels** pending occurrences instead of deleting them.
+- D1 enforces foreign keys, so archive and edits **cancel** pending occurrences instead of deleting them. A cancelled row is reused if its date comes back.
+- Edits use `applyNewVersion` → `regenerateFuture`, and the 90-day top-up uses `materializeTask`. Both go through `reconcileSeries`, which applies the pure `planRegeneration` (`src/domain/edit.ts`): rows on the same date are reused, swap and penalty overrides survive, removed dates are cancelled, and done/missed rows are skipped.
+- The rotation carries over on edit (`carryPointer`): whoever was next up stays next up in the new order.
+- Completion-anchored edits: future pending rows are cancelled, an overdue one stays, and `ensureNextCompletionOccurrence` recreates the next one (last completion + new interval).
+- The calendar (`GET /api/calendar`, max 62 days) returns stored rows plus *projected* ones beyond the horizon (`projected: true`, which can't be completed or swapped).
+- Home shows, per task, every occurrence due up to today, or else only the next one, grouped by assignee.
+- Settings is opened from the avatar (top right). The tabs are Today, Home, Calendar, Tasks and History.
+- Set `WRANGLER_SEND_METRICS=false` in the sandbox, because telemetry hosts are blocked.
 
 ## Build phases
 0. Scaffold ✅
 1. Invites and users, recurring tasks with rotation, quick ticks, Today screen, History ✅
-2. Calendar, Home screen, future-only edits
+2. Calendar, Home screen, future-only edits ✅
 3. Swaps, overdue/missed and penalties, away mode
 4. Push notifications, notifications tab, PWA install

@@ -2,15 +2,12 @@ import { Hono } from "hono";
 import { z } from "zod";
 import { and, desc, eq, inArray, isNull } from "drizzle-orm";
 import type { AppEnv } from "../env";
-import { members, occurrences, quickTicks, swapRequests, taskVersions, tasks } from "../db/schema";
-import { dateInTz } from "../../domain/dates";
-import type { Schedule } from "../../domain/schedule";
-import type { Assignment } from "../../domain/assign";
-import { nextCompletionOccurrence } from "../../domain/generate";
+import { members, occurrences, quickTicks, swapRequests, tasks } from "../db/schema";
 import { newId } from "../lib/tokens";
 import { badRequest, conflict, notFound } from "../lib/errors";
 import { loadAssignCtx } from "../services/context";
-import { occurrenceRow } from "../services/materialize";
+import { ensureNextCompletionOccurrence } from "../services/materialize";
+import { currentVersion } from "../services/regenerate";
 
 export const UNDO_WINDOW_MS = 10 * 60 * 1000;
 
@@ -36,27 +33,14 @@ export const occurrenceRoutes = new Hono<AppEnv>()
         .where(and(eq(swapRequests.occurrenceId, occ.id), eq(swapRequests.status, "pending"))),
     ];
 
-    // Completion-anchored tasks: the next due date counts from today's completion.
-    const [version] = await db
-      .select()
-      .from(taskVersions)
-      .where(and(eq(taskVersions.taskId, occ.taskId), isNull(taskVersions.effectiveTo)));
-    const [task] = await db.select().from(tasks).where(eq(tasks.id, occ.taskId));
-    const schedule = version?.schedule as Schedule | undefined;
-    if (version && task && !task.archivedAt && schedule?.type === "interval" && schedule.anchor === "completion") {
-      const completionDate = dateInTz(c.var.now, c.env.APP_TIMEZONE);
-      const state =
-        occ.versionId === version.id
-          ? { pointer: occ.pointerAfter, cover: occ.coverAfter }
-          : { pointer: version.rotationStartIndex, cover: 0 };
-      const g = nextCompletionOccurrence(schedule, version.assignment as Assignment, state, completionDate, await loadAssignCtx(db));
-      const [clash] = await db
-        .select({ id: occurrences.id })
-        .from(occurrences)
-        .where(and(eq(occurrences.taskId, occ.taskId), eq(occurrences.scheduledDate, g.date)));
-      if (!clash) stmts.push(db.insert(occurrences).values(occurrenceRow(occ.taskId, version, g, nowIso, occ.id)));
-    }
     await db.batch(stmts as never);
+
+    // Completion-anchored tasks: the next due date counts from this completion.
+    const [task] = await db.select().from(tasks).where(eq(tasks.id, occ.taskId));
+    const version = await currentVersion(db, occ.taskId);
+    if (task && !task.archivedAt && version) {
+      await ensureNextCompletionOccurrence(db, occ.taskId, version, c.var.now, await loadAssignCtx(db), c.env.APP_TIMEZONE, occ.id);
+    }
     return c.json({ ok: true });
   })
 
